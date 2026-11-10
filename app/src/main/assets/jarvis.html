@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Jarvis</title>
+<style>
+:root{--bg:#070402;--panel:#140c05;--line:#4a2e10;--cyan:#ffb347;--cyan-dim:#b0691c;--gold:#ffd88a;--text:#f6e6d0;--mute:#a58a6c;--danger:#ff6b6b}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:"Rajdhani","Bahnschrift","Segoe UI",system-ui,sans-serif;overflow:hidden}
+body{display:flex;flex-direction:column;padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0);background:radial-gradient(ellipse at 50% 30%,#2b1606 0%,var(--bg) 64%)}
+header{display:flex;justify-content:space-between;align-items:center;padding:10px 16px}
+header h1{font-size:18px;font-weight:600;letter-spacing:.32em;color:var(--cyan)}
+#status{font-size:14px;color:var(--mute);letter-spacing:.08em}
+#status b{color:var(--gold);font-weight:600}
+button{font:inherit;color:inherit;background:none;border:1px solid var(--line);border-radius:6px;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+#gear{width:36px;height:36px;font-size:18px;color:var(--cyan-dim)}
+#stage{flex:0 0 52%;min-height:240px;position:relative}
+canvas{width:100%;height:100%;display:block;touch-action:none}
+#stage::before,#stage::after{content:"";position:absolute;width:26px;height:26px;border:1.5px solid var(--cyan-dim);opacity:.8}
+#stage::before{left:12px;top:4px;border-right:0;border-bottom:0}
+#stage::after{right:12px;bottom:4px;border-left:0;border-top:0}
+.ro{position:absolute;font-size:12px;line-height:1.35;color:var(--cyan-dim);letter-spacing:.06em;white-space:pre;pointer-events:none}
+.ro.tl{left:18px;top:12px}.ro.br{right:18px;bottom:10px;text-align:right}
+#log{flex:1;overflow-y:auto;padding:8px 16px;display:flex;flex-direction:column;gap:10px;mask-image:linear-gradient(transparent,#000 24px)}
+.m{max-width:88%;padding:8px 12px;font-size:17px;line-height:1.35;border-left:2px solid var(--cyan-dim);background:rgba(8,18,31,.8)}
+.m.u{align-self:flex-end;border-left:0;border-right:2px solid var(--gold);color:#fff0d6;text-align:right}
+.m.err{border-color:var(--danger);color:var(--danger)}
+#bar{display:flex;gap:8px;padding:10px 12px 14px;align-items:center}
+#txt{flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:6px;color:var(--text);font:inherit;font-size:17px;padding:11px 12px}
+#send{height:46px;padding:0 14px;color:var(--cyan)}
+#mic{width:56px;height:56px;border-radius:50%;border:2px solid var(--cyan);color:var(--cyan);font-size:22px;flex:none;transition:box-shadow .2s,background .2s}
+#mic.on{background:rgba(255,179,71,.15);box-shadow:0 0 0 6px rgba(255,179,71,.12),0 0 24px rgba(255,179,71,.5)}
+dialog{max-height:90vh;overflow:auto;margin:auto;width:min(92vw,420px);background:var(--panel);color:var(--text);border:1px solid var(--cyan-dim);border-radius:8px;padding:18px}
+dialog::backdrop{background:rgba(0,0,0,.7)}
+dialog h2{font-size:18px;color:var(--cyan);margin-bottom:12px;letter-spacing:.1em}
+label{display:block;font-size:14px;color:var(--mute);margin:10px 0 4px}
+dialog input,dialog select,dialog textarea{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--text);font:inherit;font-size:16px;padding:9px}
+.row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.row button{padding:8px 16px}
+.row .pri{border-color:var(--cyan);color:var(--cyan)}
+@media (prefers-reduced-motion:reduce){#mic{transition:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>JARVIS</h1>
+  <span id="status">Status: <b id="st">Idle</b></span>
+  <button id="gear" aria-label="Settings">⚙</button>
+</header>
+<div id="stage"><canvas id="cv" aria-hidden="true"></canvas><span class="ro tl" id="ro1"></span><span class="ro br" id="ro2"></span></div>
+<div id="log" aria-live="polite"></div>
+<div id="bar">
+  <input id="txt" type="text" placeholder="Type a command" autocomplete="off" aria-label="Command">
+  <button id="send">Send</button>
+  <button id="mic" aria-label="Talk to Jarvis">🎙</button>
+</div>
+
+<dialog id="dlg">
+  <h2>Settings</h2>
+  <label for="key">Groq API key</label>
+  <input id="key" type="password" autocomplete="off" placeholder="gsk_...">
+  <label for="model">Model</label>
+  <select id="model">
+    <option value="openai/gpt-oss-20b">gpt-oss-20b (fast)</option>
+    <option value="openai/gpt-oss-120b">gpt-oss-120b (smarter)</option>
+  </select>
+  <label for="voice">Voice</label>
+  <select id="voice"></select>
+  <button id="test" type="button" style="margin-top:8px;padding:6px 12px">Test voice</button>
+  <label for="contacts">Contacts (one per line, Name: number)</label>
+  <textarea id="contacts" rows="4" placeholder="Mom: +15551234567"></textarea>
+  <label for="lang">Speech language</label>
+  <select id="lang"><option value="en-IN">English (India)</option><option value="en-US">English (US)</option><option value="en-GB">English (UK)</option><option value="hi-IN">Hindi</option></select>
+  <label for="relay">Gmail relay URL (Apps Script web app)</label>
+  <input id="relay" type="url" placeholder="https://script.google.com/macros/s/.../exec">
+  <label for="secret">Relay secret</label>
+  <input id="secret" type="password" autocomplete="off">
+  <label style="display:flex;gap:8px;align-items:center;margin-top:12px"><input id="hf" type="checkbox" style="width:auto"> Hands-free: keep listening after each reply</label>
+  <div class="row"><button id="cancel">Cancel</button><button id="save" class="pri">Save</button></div>
+</dialog>
+
+<script>
+(function(){
+"use strict";
+var $=function(i){return document.getElementById(i)};
+var state="idle", amp=0, history=[];
+function contactsMap(){var m={};load("jv_contacts","").split("\n").forEach(function(l){var i=l.search(/[:=]/);if(i>0){var n=l.slice(0,i).trim().toLowerCase(),v=l.slice(i+1).trim();if(n&&v)m[n]=v}});return m}
+function sysPrompt(){var names=Object.keys(contactsMap()).join(", ");
+return "You are JARVIS, a calm, dry-witted British AI butler. Address the user as sir. Reply ONLY with a JSON object: {\"say\":\"one to three short spoken sentences, no markdown\",\"action\":null or one of {\"type\":\"call\",\"to\":\"name or number\"} | {\"type\":\"sms\",\"to\":\"name or number\",\"body\":\"message text\"} | {\"type\":\"open_app\",\"app\":\"app name\"} | {\"type\":\"search\",\"query\":\"text\"} | {\"type\":\"navigate\",\"to\":\"place\"}}. More actions: {\"type\":\"whatsapp\",\"to\":\"name or number\",\"body\":\"text\"} | {\"type\":\"youtube\",\"query\":\"text\"} | {\"type\":\"set_alarm\",\"hour\":0-23,\"minute\":0-59,\"label\":\"text\"} | {\"type\":\"set_timer\",\"seconds\":number}. Email actions: {\"type\":\"read_email\",\"count\":1-10,\"query\":\"gmail search, default is:unread\"} | {\"type\":\"send_email\",\"to\":\"name or email address\",\"subject\":\"text\",\"body\":\"full email text\"}. Set action only when the user asks you to do that on the phone, otherwise null. In say, announce what you are doing in the present tense. Known contacts: "+(names||"none")+". Current date and time: "+new Date().toString()+"."}
+
+/* ---------- storage (guarded) ---------- */
+function load(k,d){try{var v=localStorage.getItem(k);return v===null?d:v}catch(e){return d}}
+function store(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+
+/* ---------- state + UI ---------- */
+function setState(s){
+  state=s;
+  $("st").textContent={idle:"Idle",listen:"Listening",think:"Thinking",speak:"Speaking"}[s];
+  $("mic").classList.toggle("on",s==="listen");
+}
+function add(text,cls){
+  var d=document.createElement("div");
+  d.className="m "+(cls||"j");
+  d.textContent=text;
+  $("log").appendChild(d);
+  $("log").scrollTop=1e9;
+  return d;
+}
+
+/* ---------- speech out (male voice, chunked, speaks every reply) ---------- */
+var voices=[],spkId=0,spkTimer=null;
+function scoreVoice(v){
+  var n=(v.name+" "+v.lang).toLowerCase(),sc=0;
+  if(!/^en/i.test(v.lang))return -99;
+  if(/gb|uk|british/.test(n))sc+=2;
+  if(/female|zira|samantha|karen|susan|hazel|moira|tessa|victoria|fiona|serena|x-gba|x-gbc|x-iob|x-tpf|x-tpc|x-sfg|google us english/.test(n))sc-=6;
+  else if(/daniel|david|james|george|arthur|oliver|male|alex|fred|mark|guy|ryan|rjs|x-gbb|x-gbd|x-iol|x-iom|x-tpd/.test(n))sc+=5;
+  return sc;
+}
+function loadVoices(){
+  voices=(window.speechSynthesis&&speechSynthesis.getVoices())||[];
+  var sel=$("voice"),saved=load("jv_voice","");
+  sel.innerHTML="";
+  var auto=document.createElement("option");auto.value="";auto.textContent="Auto (male English)";sel.appendChild(auto);
+  voices.forEach(function(v){var o=document.createElement("option");o.value=v.name;o.textContent=v.name+" ("+v.lang+")";sel.appendChild(o)});
+  sel.value=saved;
+}
+function pickVoice(){
+  var saved=load("jv_voice","");
+  if(saved){for(var i=0;i<voices.length;i++)if(voices[i].name===saved)return{v:voices[i],sc:scoreVoice(voices[i])}}
+  var best=null,bs=-50;
+  voices.forEach(function(v){var c=scoreVoice(v);if(c>bs){bs=c;best=v}});
+  return best?{v:best,sc:bs}:null;
+}
+function speak(text,done){
+  var id=++spkId,fin=false;
+  function end(){if(fin||id!==spkId)return;fin=true;clearTimeout(spkTimer);setState("idle");if(done)done()}
+  clearTimeout(spkTimer);
+  if(!window.speechSynthesis){setState("speak");setTimeout(end,Math.min(4000,text.length*60));return}
+  try{speechSynthesis.cancel()}catch(e){}
+  var pv=pickVoice(),v=pv&&pv.v,male=!!pv&&pv.sc>0;
+  var parts=text.match(/[^.!?]+[.!?]*\s*/g)||[text],chunks=[],cur="";
+  parts.forEach(function(p){if((cur+p).length>170&&cur){chunks.push(cur);cur=p}else cur+=p});
+  if(cur)chunks.push(cur);
+  var idx=0;
+  function next(){
+    if(id!==spkId)return;
+    if(idx>=chunks.length){end();return}
+    var u=new SpeechSynthesisUtterance(chunks[idx++].trim());
+    if(v){u.voice=v;u.lang=v.lang}else u.lang="en-GB";
+    u.pitch=male?.85:.55;u.rate=1;u.volume=1;
+    u.onstart=function(){if(id===spkId)setState("speak")};
+    u.onend=next;u.onerror=end;
+    speechSynthesis.speak(u);
+  }
+  setTimeout(next,80);
+  spkTimer=setTimeout(end,Math.max(6000,text.length*120));
+}
+if(window.speechSynthesis){
+  loadVoices();speechSynthesis.onvoiceschanged=loadVoices;
+  var vp=0,vi=setInterval(function(){if(voices.length||++vp>20)clearInterval(vi);else loadVoices()},500);
+  document.addEventListener("pointerdown",function(){try{var u=new SpeechSynthesisUtterance(" ");u.volume=0;speechSynthesis.speak(u)}catch(e){}},{once:true});
+}
+$("test").onclick=function(){store("jv_voice",$("voice").value);speak("Good day, sir. Voice check complete.")};
+
+/* ---------- phone control ---------- */
+var PK_APPS={whatsapp:"com.whatsapp",youtube:"com.google.android.youtube",spotify:"com.spotify.music",instagram:"com.instagram.android",facebook:"com.facebook.katana",telegram:"org.telegram.messenger",chrome:"com.android.chrome",gmail:"com.google.android.gm",maps:"com.google.android.apps.maps",photos:"com.google.android.apps.photos","play store":"com.android.vending",twitter:"com.twitter.android",x:"com.twitter.android",snapchat:"com.snapchat.android",tiktok:"com.zhiliaoapp.musically",netflix:"com.netflix.mediaclient",calculator:"com.google.android.calculator",contacts:"com.google.android.contacts",calendar:"com.google.android.calendar"};
+function intentUrl(extra){return "intent:#Intent;"+extra+";end"}
+function appUrl(name){
+  var n=String(name||"").toLowerCase().replace(/^the\s+/,"").replace(/\s+app$/,"").trim();
+  if(n==="camera")return intentUrl("action=android.media.action.IMAGE_CAPTURE");
+  if(n==="settings")return intentUrl("action=android.settings.SETTINGS");
+  if(n==="clock"||n==="alarm")return intentUrl("action=android.intent.action.SHOW_ALARMS");
+  if(n==="phone"||n==="dialer")return "tel:";
+  if(n==="messages"||n==="sms")return "sms:";
+  if(n==="email"||n==="mail")return "mailto:";
+  var pk=PK_APPS[n];
+  return pk?intentUrl("action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package="+pk):null;
+}
+function resolveNumber(to){
+  var t=String(to||"").trim();
+  if(/^\+?[\d][\d\s\-().]{2,}$/.test(t))return t.replace(/[\s\-().]/g,"");
+  var m=contactsMap(),k=t.toLowerCase();
+  if(m[k])return m[k].replace(/[\s\-().]/g,"");
+  for(var n in m){if(k.indexOf(n)>-1||n.indexOf(k)>-1)return m[n].replace(/[\s\-().]/g,"")}
+  return null;
+}
+function fire(url){
+  if(/^https?:/i.test(url)){var w=window.open(url,"_blank");if(!w)location.href=url;return}
+  try{location.href=url}catch(e){}
+}
+
+function relay(q,body){var u=load("jv_relay",""),k=load("jv_secret","");
+  if(!u)return Promise.reject(new Error("Gmail relay is not set. Open settings, sir."));
+  var url=u+(u.indexOf("?")>-1?"&":"?")+"s="+encodeURIComponent(k)+"&"+q;
+  return fetch(url,body?{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify(body)}:{}).then(function(r){return r.json()}).then(function(j){if(j.error)throw new Error(j.error);return j})}
+function emailAddr(t){t=String(t||"").trim();if(/^\S+@\S+\.\S+$/.test(t))return t;var m=contactsMap(),k=t.toLowerCase();
+  for(var n in m){if(/@/.test(m[n])&&(n===k||k.indexOf(n)>-1||n.indexOf(k)>-1))return m[n]}return null}
+function emailAction(a){
+  if(a.type==="read_email"){setState("think");
+    relay("a=inbox&n="+(parseInt(a.count,10)||5)+"&q="+encodeURIComponent(a.query||"is:unread in:inbox")).then(function(j){
+      var t=j.mails||[],x=t.length?"You have "+t.length+" message"+(t.length>1?"s":"")+", sir. "+t.map(function(m,i){return (i+1)+". From "+m.from+": "+m.subject+". "+m.snippet}).join(" "):"No matching email, sir.";
+      add(x);speak(x)}).catch(function(e){add(e.message,"err");speak("I couldn’t reach your mail, sir.")});return}
+  var to=emailAddr(a.to);
+  if(!to){var m1="I don’t have an email address for "+(a.to||"that contact")+", sir. Add it under Contacts as Name: address.";add(m1,"err");speak(m1);return}
+  var d=document.createElement("div");d.className="m";
+  var h=document.createElement("div");h.textContent="To: "+to+"\nSubject: "+(a.subject||"(none)")+"\n\n"+(a.body||"");h.style.whiteSpace="pre-wrap";d.appendChild(h);
+  var b=document.createElement("button"),c=document.createElement("button");b.textContent="Send";c.textContent="Cancel";b.style.cssText=c.style.cssText="padding:6px 14px;margin:8px 8px 0 0";b.style.color="var(--gold)";
+  b.onclick=function(){b.disabled=c.disabled=true;relay("a=send",{to:to,subject:a.subject||"",body:a.body||""}).then(function(){add("Email sent, sir.");speak("Email sent, sir.")}).catch(function(e){add(e.message,"err")})};
+  c.onclick=function(){d.remove()};d.appendChild(b);d.appendChild(c);$("log").appendChild(d);$("log").scrollTop=1e9}
+function runAction(a){
+  var url=null,label="",enc=encodeURIComponent;
+  if(a.type==="read_email"||a.type==="send_email"){emailAction(a);return}
+  if(a.type==="call"||a.type==="sms"){
+    var num=resolveNumber(a.to);
+    if(!num){var msg="I don’t have a number for "+(a.to||"that contact")+", sir. Add it under Contacts in settings.";add(msg,"err");speak(msg);return}
+    url=a.type==="call"?"tel:"+num:"sms:"+num+"?body="+enc(a.body||"");
+    label=(a.type==="call"?"Call ":"Text ")+a.to;
+  }else if(a.type==="open_app"){
+    url=appUrl(a.app);label="Open "+a.app;
+    if(!url){var m2="I don’t know how to open "+a.app+" yet, sir.";add(m2,"err");speak(m2);return}
+  }else if(a.type==="search"){url="https://www.google.com/search?q="+enc(a.query||"");label="Search: "+a.query}
+  else if(a.type==="navigate"){url="google.navigation:q="+enc(a.to||"");label="Navigate to "+a.to}
+  else if(a.type==="whatsapp"){var wn=resolveNumber(a.to);
+    if(!wn){var m3="I don’t have a number for "+(a.to||"that contact")+", sir. Add it under Contacts in settings.";add(m3,"err");speak(m3);return}
+    url="https://wa.me/"+wn.replace(/\D/g,"")+"?text="+enc(a.body||"");label="WhatsApp "+a.to}
+  else if(a.type==="youtube"){url="https://www.youtube.com/results?search_query="+enc(a.query||"");label="YouTube: "+a.query}
+  else if(a.type==="set_alarm"){var hh=parseInt(a.hour,10),mi=parseInt(a.minute,10)||0;if(!(hh>=0&&hh<24)||!(mi>=0&&mi<60))return;
+    url=intentUrl("action=android.intent.action.SET_ALARM;i.android.intent.extra.alarm.HOUR="+hh+";i.android.intent.extra.alarm.MINUTES="+mi+";S.android.intent.extra.alarm.MESSAGE="+enc(a.label||"Jarvis"));label="Alarm "+hh+":"+(mi<10?"0":"")+mi}
+  else if(a.type==="set_timer"){var sec=parseInt(a.seconds,10);if(!(sec>0&&sec<86400))return;
+    url=intentUrl("action=android.intent.action.SET_TIMER;i.android.intent.extra.alarm.LENGTH="+sec);label="Timer "+sec+" seconds"}
+  else return;
+  var d=document.createElement("div");d.className="m";
+  var l=document.createElement("a");l.href=url;l.textContent="▶ "+label+" (tap if it didn’t open)";l.style.color="var(--gold)";
+  if(/^https?:/i.test(url))l.target="_blank";
+  d.appendChild(l);$("log").appendChild(d);$("log").scrollTop=1e9;
+  fire(url);
+}
+
+function getModel(){var m=load("jv_model","");return m==="openai/gpt-oss-120b"?m:"openai/gpt-oss-20b"}
+function parseJ(raw){var a=raw.indexOf("{"),b=raw.lastIndexOf("}");if(a<0||b<a)throw 0;return JSON.parse(raw.slice(a,b+1))}
+/* ---------- brain (Groq) ---------- */
+async function ask(text){
+  var key=load("jv_key","");
+  if(!key){add("No API key set. Open settings and add your Groq key.","err");$("dlg").showModal();return}
+  add(text,"u");
+  history.push({role:"user",content:text});
+  history=history.slice(-12);
+  setState("think");
+  try{
+    var r=await fetch("https://api.groq.com/openai/v1/chat/completions",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","Authorization":"Bearer "+key},
+      body:JSON.stringify({model:getModel(),temperature:.5,max_tokens:1200,reasoning_effort:"low",response_format:{type:"json_object"},
+        messages:[{role:"system",content:sysPrompt()}].concat(history)})
+    });
+    if(!r.ok)throw new Error(r.status===401?"The Groq key was rejected. Check it in settings.":r.status===404?"That AI model is unavailable. Open settings and pick another model, sir.":r.status===429?"Groq says too many requests. Wait a moment, sir.":"Groq returned error "+r.status+".");
+    var j=await r.json();
+    var raw=(j.choices&&j.choices[0].message.content||"").trim(),say=raw,act=null;
+    history.push({role:"assistant",content:raw});
+    try{var o=parseJ(raw);say=String(o.say||o.reply||"").trim();act=o.action||null}catch(e){}
+    if(!say)say="Right away, sir.";
+    add(say);
+    speak(say,function(){var has=act&&act.type&&act.type!=="none";if(has)runAction(act);else if(load("jv_hf","")==="1")setTimeout(listen,350)});
+  }catch(e){
+    add(e.message||"Network error. Check your connection.","err");
+    setState("idle");
+  }
+}
+
+/* ---------- speech in ---------- */
+var SR=window.SpeechRecognition||window.webkitSpeechRecognition, rec=null;
+function listen(){
+  if(!SR){add("Speech recognition isn’t available here. Type your command instead.","err");return}
+  if(state==="listen"){rec&&rec.stop();return}
+  spkId++;if(window.speechSynthesis)speechSynthesis.cancel();
+  rec=new SR();rec.lang=load("jv_lang","en-IN");rec.interimResults=false;
+  var got=false;
+  rec.onstart=function(){setState("listen")};
+  rec.onresult=function(e){got=true;ask(e.results[0][0].transcript)};
+  rec.onerror=function(e){if(e.error==="not-allowed")add("Microphone is blocked. Open Jarvis from http://localhost:8080 or an https link, or allow the mic for this site in Chrome settings.","err")};
+  rec.onend=function(){if(!got&&state==="listen")setState("idle")};
+  try{rec.start()}catch(e){setState("idle")}
+}
+
+/* ---------- inputs ---------- */
+function submit(){var t=$("txt").value.trim();if(!t)return;$("txt").value="";ask(t)}
+$("send").onclick=submit;
+$("txt").onkeydown=function(e){if(e.key==="Enter")submit()};
+$("mic").onclick=listen;
+$("gear").onclick=function(){$("key").value=load("jv_key","");$("model").value=getModel();$("voice").value=load("jv_voice","");$("contacts").value=load("jv_contacts","");$("lang").value=load("jv_lang","en-IN");$("hf").checked=load("jv_hf","")==="1";$("relay").value=load("jv_relay","");$("secret").value=load("jv_secret","");$("dlg").showModal()};
+$("cancel").onclick=function(){$("dlg").close()};
+$("save").onclick=function(){store("jv_key",$("key").value.trim());store("jv_model",$("model").value);store("jv_voice",$("voice").value);store("jv_contacts",$("contacts").value);store("jv_lang",$("lang").value);store("jv_hf",$("hf").checked?"1":"");store("jv_relay",$("relay").value.trim());store("jv_secret",$("secret").value.trim());$("dlg").close()};
+
+/* ---------- HUD: true 3D model (software projection, drag to rotate) ---------- */
+var cv=$("cv"),cx=cv.getContext("2d"),W=0,H=0,t=0,spin=1,boot=0,burst=0,lastWave=0;
+var ry=0.6,rx=0.35,vx=0,vy=0,drag=false,lx=0,ly=0,moved=0;
+var cY=1,sY=0,cX=1,sX=0,F=1,PX=0,PY=0,PZ=0,PK=1;
+function fit(){var d=window.devicePixelRatio||1,b=cv.getBoundingClientRect();W=b.width;H=b.height;cv.width=W*d;cv.height=H*d;cx.setTransform(d,0,0,d,0,0)}
+window.addEventListener("resize",fit);fit();
+var still=window.matchMedia&&matchMedia("(prefers-reduced-motion:reduce)").matches;
+function pr(x,y,z){var a=x*cY+z*sY,b=-x*sY+z*cY,c=y*cX-b*sX,d=y*sX+b*cX,k=F/(F-d);PX=a*k;PY=c*k;PZ=d;PK=k}
+function rnd(){return Math.random()}
+function rv(){var v=[rnd()*2-1,rnd()*2-1,rnd()*2-1],l=Math.hypot(v[0],v[1],v[2])||1;return[v[0]/l,v[1]/l,v[2]/l]}
+var N=16000,P=[],SP=[],SH=[],WV=[],i0;
+for(i0=0;i0<N;i0++){var flat=rnd()<.42,rd=Math.pow(rnd(),.6);P.push({th:rnd()*6.283,ph:flat?1.5708+(rnd()-.5)*.35*(.3+rd):Math.acos(2*rnd()-1),rd:rd,f:flat?1:.35,s:.4+rnd()*.6,sz:.8+rnd()*1.8,tw:rnd()*6.283})}
+for(i0=0;i0<160;i0++){var kk=[];for(var q=0;q<4;q++)kk.push(rv());SP.push({u:rv(),k:kk,len:.55+rnd()*.6,ph:rnd()*6.283,bt:1+Math.floor(rnd()*3),bd:rv(),bl:.1+rnd()*.22})}
+for(i0=0;i0<420;i0++)SH.push({th:rnd()*6.283,ph:Math.acos(2*rnd()-1),rd:.55+rnd()*.65,s:(rnd()-.5)*.5,sz:3+rnd()*9,rot:rnd()*6.283,rs:(rnd()-.5)*2.4,p2:rnd()*6.283});
+/* accretion torus, star dust, lightning */
+var SAT=[],T=[],D=[],LG=[],lgT=0,Q=1,fc=0,tAcc=0,tPrev=performance.now();
+for(i0=0;i0<3500;i0++)T.push({a:rnd()*6.283,m:rnd()*6.283,rr:.03+rnd()*.07,sp:.7+rnd()*.7});
+for(i0=0;i0<2200;i0++)D.push({th:rnd()*6.283,ph:Math.acos(2*rnd()-1),rd:1.25+rnd()*.95,tw:rnd()*6.283});
+for(i0=0;i0<16;i0++)SAT.push({th:rnd()*6.283,ph:Math.acos(2*rnd()-1),rd:.7+rnd()*.55,s:(.6+rnd()*.9)*(rnd()<.5?-1:1),h:[]});
+/* icosahedron core */
+var IV=[],IE=[],ph0=(1+Math.sqrt(5))/2,raw=[];
+[-1,1].forEach(function(a){[-1,1].forEach(function(b){raw.push([0,a,b*ph0],[a,b*ph0,0],[b*ph0,0,a])})});
+raw.forEach(function(v){var l=Math.hypot(v[0],v[1],v[2]);IV.push([v[0]/l,v[1]/l,v[2]/l])});
+for(var ia=0;ia<12;ia++)for(var ib=ia+1;ib<12;ib++){var dd=Math.pow(raw[ia][0]-raw[ib][0],2)+Math.pow(raw[ia][1]-raw[ib][1],2)+Math.pow(raw[ia][2]-raw[ib][2],2);if(Math.abs(dd-4)<.01)IE.push([ia,ib])}
+/* input: drag rotates, tap bursts */
+cv.addEventListener("pointerdown",function(e){drag=true;moved=0;lx=e.clientX;ly=e.clientY;try{cv.setPointerCapture(e.pointerId)}catch(x){}});
+cv.addEventListener("pointermove",function(e){if(!drag)return;var dx=e.clientX-lx,dy=e.clientY-ly;lx=e.clientX;ly=e.clientY;ry+=dx*.008;rx=Math.max(-1.3,Math.min(1.3,rx+dy*.008));vx=dx*.008;vy=dy*.008;moved+=Math.abs(dx)+Math.abs(dy)});
+function up(){if(drag&&moved<6){burst=1;WV.push({r:.1,a:.9})}drag=false}
+cv.addEventListener("pointerup",up);cv.addEventListener("pointercancel",function(){drag=false});
+setInterval(function(){
+  var h=function(n){return Math.floor(Math.random()*n)};
+  $("ro1").textContent="CORE "+(96+h(4))+"%\nFLUX "+(1000+h(900))+"\nSYNC OK";
+  $("ro2").textContent="LAT "+(8+h(30))+" ms\n"+(state==="idle"?"STANDBY":state==="listen"?"INPUT":state==="think"?"COMPUTE":"OUTPUT");
+},700);
+/* draw a 3D polyline with gaps, split into front/back alpha */
+function poly(pts,gap,col,aF,aB,lw){
+  var Fp=new Path2D(),Bp=new Path2D(),x0=0,y0=0,z0=0;
+  for(var i=0;i<pts.length;i++){pr(pts[i][0],pts[i][1],pts[i][2]);
+    if(i>0&&(gap===0||i%gap!==0)){var tg=(PZ+z0)>0?Fp:Bp;tg.moveTo(x0,y0);tg.lineTo(PX,PY)}
+    x0=PX;y0=PY;z0=PZ}
+  cx.lineWidth=lw;cx.strokeStyle=col;cx.globalAlpha=aB;cx.stroke(Bp);cx.globalAlpha=aF;cx.stroke(Fp);
+}
+var RINGS=[[1.12,1.2,0,.25,9,1.4],[1.0,.3,.9,-.35,14,1],[.9,-.8,.4,.5,6,1.2],[.82,1.5,-.6,-.6,20,2],[.72,.2,1.4,.8,5,1],[.62,.9,-1.1,-.9,8,1.2],[.5,-.4,.3,1.1,4,1],[1.25,.6,-.3,.12,30,.8]];
+function frame(){
+  var now=performance.now(),dt=now-tPrev;tPrev=now;tAcc+=dt;fc++;
+  if(fc>=24){var av=tAcc/fc;fc=0;tAcc=0;if(av>26)Q=Math.max(.2,Q-.15);else if(av<18&&Q<1)Q=Math.min(1,Q+.05)}
+  t+=still?0:.016;
+  boot=Math.min(1,boot+.011);var e=1-Math.pow(1-boot,3);
+  burst*=.93;
+  var tgt={idle:.1,listen:.45,think:.3,speak:.5+.5*Math.abs(Math.sin(t*9))*Math.abs(Math.sin(t*3.7))}[state];
+  amp+=(tgt-amp)*.08;
+  var sp={idle:1,listen:.7,think:3.4,speak:1.8}[state];spin+=(sp-spin)*.05;
+  var sc={idle:1,listen:.86,think:1,speak:1+amp*.1}[state];
+  if(state==="speak"&&amp>.8&&t-lastWave>.45){WV.push({r:.1,a:.7});lastWave=t}
+  if(!drag){ry+=vx+.0035*spin;vx*=.95;rx+=vy;vy*=.95;rx+=(.35-rx)*.01}
+  cY=Math.cos(ry);sY=Math.sin(ry);cX=Math.cos(rx);sX=Math.sin(rx);
+  var R=Math.min(W*.5,H*.5)*.88*e*sc*(1+burst*.1);F=R*3.4+1;
+  var fl,i,j,k,m,NQ=Math.floor(N*Q),SQ=Math.floor(SH.length*Q);
+  cx.globalCompositeOperation="destination-out";cx.globalAlpha=1;cx.fillStyle="rgba(0,0,0,"+(still?1:.3)+")";cx.fillRect(0,0,W,H);
+  cx.save();cx.translate(W/2,H/2);
+  cx.globalCompositeOperation="lighter";cx.lineCap="butt";
+  var g=cx.createRadialGradient(0,0,0,0,0,R*1.1);
+  g.addColorStop(0,"rgba(255,170,60,"+(.4+amp*.4)+")");g.addColorStop(.5,"rgba(200,90,10,.14)");g.addColorStop(1,"rgba(0,0,0,0)");
+  cx.fillStyle=g;cx.globalAlpha=e;cx.beginPath();cx.arc(0,0,R*1.1,0,7);cx.fill();
+  /* lat/long wireframe */
+  var pts,a2;
+  for(m=0;m<6;m++){pts=[];var lam=m/6*3.1416+t*.05*spin;for(i=0;i<=72;i++){a2=i/72*6.2832;pts.push([R*.92*Math.sin(a2)*Math.cos(lam),R*.92*Math.cos(a2),R*.92*Math.sin(a2)*Math.sin(lam)])}poly(pts,7,"#ff9a2e",.22+amp*.2,.06,.7)}
+  for(m=1;m<6;m++){pts=[];var p0=m/6*3.1416;for(i=0;i<=72;i++){a2=i/72*6.2832+t*.1*spin;pts.push([R*.92*Math.sin(p0)*Math.cos(a2),R*.92*Math.cos(p0),R*.92*Math.sin(p0)*Math.sin(a2)])}poly(pts,5,"#ff9a2e",.2+amp*.2,.05,.7)}
+  /* gyroscope rings */
+  for(j=0;j<RINGS.length;j++){var rg=RINGS[j];pts=[];
+    for(i=0;i<=160;i++){a2=i/160*6.2832+t*rg[3]*spin;var x=Math.cos(a2)*R*rg[0],z=Math.sin(a2)*R*rg[0];
+      var y1=-z*Math.sin(rg[1]),z1=z*Math.cos(rg[1]),x2=x*Math.cos(rg[2])-y1*Math.sin(rg[2]),y2=x*Math.sin(rg[2])+y1*Math.cos(rg[2]);pts.push([x2,y2,z1])}
+    poly(pts,rg[4],"#ffc468",.75,.18,rg[5])}
+  /* shockwaves */
+  for(i=WV.length-1;i>=0;i--){var wv=WV[i];wv.r+=.02+amp*.01;wv.a*=.965;if(wv.r>1.5||wv.a<.02){WV.splice(i,1);continue}
+    cx.globalAlpha=wv.a;cx.strokeStyle="#ffd88a";cx.lineWidth=1.5;cx.beginPath();cx.arc(0,0,R*wv.r,0,6.283);cx.stroke()}
+  /* 3D shattered spokes */
+  cx.lineWidth=.9;
+  for(j=0;j<SP.length;j++){
+    var sk=SP[j];fl=.35+.65*Math.abs(Math.sin(t*(state==="think"?10:2)+sk.ph));
+    var L=sk.len*(.9+amp*.15+burst*.3),jt=R*.03*(1+amp*2),sx=[],sy=[],zz=0,bx=0,by=0;
+    pr(sk.u[0]*R*.12,sk.u[1]*R*.12,sk.u[2]*R*.12);sx.push(PX);sy.push(PY);
+    for(k=1;k<=4;k++){var rr=R*(.1+L*k/4),qx=sk.u[0]*rr+sk.k[k-1][0]*jt,qy=sk.u[1]*rr+sk.k[k-1][1]*jt,qz=sk.u[2]*rr+sk.k[k-1][2]*jt;
+      pr(qx,qy,qz);sx.push(PX);sy.push(PY);zz=PZ;
+      if(k===sk.bt){pr(qx+sk.bd[0]*R*sk.bl,qy+sk.bd[1]*R*sk.bl,qz+sk.bd[2]*R*sk.bl);bx=PX;by=PY;var bpx=sx[k],bpy=sy[k]}}
+    var dz=.35+.65*(zz/R*.5+.5);
+    cx.globalAlpha=Math.max(.05,Math.min(1,(.25+amp*.35)*fl*dz*1.6));cx.strokeStyle="#ffc468";
+    cx.beginPath();cx.moveTo(sx[0],sy[0]);for(k=1;k<5;k++)cx.lineTo(sx[k],sy[k]);cx.moveTo(bpx,bpy);cx.lineTo(bx,by);cx.stroke();
+    cx.fillStyle="#ffe2a8";cx.globalAlpha=.8*fl*dz;cx.fillRect(sx[4]-1.2,sy[4]-1.2,3,3);
+  }
+  /* 3D particle volume */
+  for(m=0;m<NQ;m++){
+    var pp=P[m],th=pp.th+t*(.15+(1-pp.rd)*.9)*pp.s*spin*pp.f,
+    rad=R*.8*pp.rd*(1+.04*Math.sin(t*2+pp.tw)+amp*.1*Math.sin(t*8+pp.tw*3)+burst*.5),
+    sph=Math.sin(pp.ph);
+    pr(rad*sph*Math.cos(th),rad*Math.cos(pp.ph),rad*sph*Math.sin(th));
+    var dp=.3+.7*(PZ/R*.5+.5);
+    cx.globalAlpha=Math.max(0,Math.min(1,(.2+.8*(1-pp.rd))*(.55+.45*Math.sin(t*3+pp.tw))*dp*1.3));
+    cx.fillStyle=pp.rd<.25?"#fff0c4":(pp.s>.7?"#ffb347":"#ff8a1f");
+    var zs=pp.sz*PK*(.8+amp*.5);cx.fillRect(PX-zs/2,PY-zs/2,zs,zs);
+  }
+  /* glass shards */
+  for(m=0;m<SQ;m++){
+    var sh=SH[m],t2=sh.th+t*sh.s*spin,r2=R*sh.rd*(1+burst*.4),sp2=Math.sin(sh.ph);
+    pr(r2*sp2*Math.cos(t2),r2*Math.cos(sh.ph),r2*sp2*Math.sin(t2));
+    var gl=Math.pow(Math.max(0,Math.sin(t*2+sh.p2)),8),sz=sh.sz*PK,dq=.3+.7*(PZ/R*.5+.5);
+    cx.save();cx.translate(PX,PY);cx.rotate(sh.rot+t*sh.rs);
+    cx.beginPath();cx.moveTo(sz,0);cx.lineTo(-sz*.6,sz*.5);cx.lineTo(-sz*.3,-sz*.6);cx.closePath();
+    cx.globalAlpha=(.25+gl*.7)*dq;cx.strokeStyle="#ffcf7a";cx.lineWidth=.8;cx.stroke();
+    if(gl>.1){cx.fillStyle="#ffd88a";cx.globalAlpha=gl*.6*dq;cx.fill()}
+    cx.restore();
+  }
+  /* comet satellites with trails */
+  for(j=0;j<SAT.length;j++){var st=SAT[j],ta=st.th+t*st.s*spin,rs=R*st.rd,sps=Math.sin(st.ph),hh;
+    st.h.push([rs*sps*Math.cos(ta),rs*Math.cos(st.ph+Math.sin(t*.7+j)*.4),rs*sps*Math.sin(ta)]);if(st.h.length>32)st.h.shift();
+    cx.strokeStyle="#ffd88a";
+    for(k=1;k<st.h.length;k++){hh=st.h[k-1];pr(hh[0],hh[1],hh[2]);var ax=PX,ay=PY;hh=st.h[k];pr(hh[0],hh[1],hh[2]);
+      cx.globalAlpha=k/st.h.length*.8;cx.lineWidth=.6+k/st.h.length*2.2;cx.beginPath();cx.moveTo(ax,ay);cx.lineTo(PX,PY);cx.stroke()}
+    cx.globalAlpha=1;cx.fillStyle="#fff6dc";var hs=4*PK;cx.fillRect(PX-hs/2,PY-hs/2,hs,hs)}
+  /* accretion torus */
+  var TQ=Math.floor(T.length*Q);cx.fillStyle="#ffd88a";
+  for(m=0;m<TQ;m++){var tt=T[m],aa=tt.a+t*tt.sp*spin*1.3,MR=R*.72+R*tt.rr*Math.cos(tt.m)*(1+amp*.5),ty=R*tt.rr*Math.sin(tt.m)*.6,tx=MR*Math.cos(aa),tz=MR*Math.sin(aa),y1=ty*.9-tz*.43,z1=ty*.43+tz*.9;
+    pr(tx,y1,z1);cx.globalAlpha=Math.max(0,Math.min(1,.15+.7*(PZ/R*.5+.5)));var ts=1.4*PK;cx.fillRect(PX-ts/2,PY-ts/2,ts,ts)}
+  /* far star dust */
+  var DQ=Math.floor(D.length*Q);cx.fillStyle="#ffcf7a";
+  for(m=0;m<DQ;m++){var dd2=D[m],th3=dd2.th+t*.03*spin,rd3=R*dd2.rd,sp3=Math.sin(dd2.ph);pr(rd3*sp3*Math.cos(th3),rd3*Math.cos(dd2.ph),rd3*sp3*Math.sin(th3));
+    cx.globalAlpha=(.12+.3*Math.abs(Math.sin(t*1.5+dd2.tw)))*(.4+.6*(PZ/R*.2+.5));cx.fillRect(PX,PY,1.3,1.3)}
+  /* lightning from core */
+  if(t-lgT>.1){lgT=t;LG=[];var nb=state==="think"?8:state==="speak"?5:state==="listen"?3:1;for(i=0;i<nb;i++)LG.push(rv())}
+  for(j=0;j<LG.length;j++){var lu=LG[j],lp=[];
+    for(k=0;k<=9;k++){var f2=k/9,jj=R*.04*(Math.sin(f2*3.1416)+.15),lr=R*(.1+.85*f2);pr(lu[0]*lr+(rnd()-.5)*jj*2,lu[1]*lr+(rnd()-.5)*jj*2,lu[2]*lr+(rnd()-.5)*jj*2);lp.push([PX,PY])}
+    cx.beginPath();cx.moveTo(lp[0][0],lp[0][1]);for(k=1;k<10;k++)cx.lineTo(lp[k][0],lp[k][1]);
+    cx.globalAlpha=.25;cx.strokeStyle="#ff9a2e";cx.lineWidth=3.5;cx.stroke();cx.globalAlpha=.9;cx.strokeStyle="#fff0c4";cx.lineWidth=1;cx.stroke()}
+  /* icosahedron cores */
+  for(j=0;j<2;j++){
+    var sc2=(j?.3:.17)*R*(1+amp*.3),dir=j?-1:1,ca=Math.cos(t*.9*dir*spin),sa=Math.sin(t*.9*dir*spin),cb=Math.cos(t*.6*spin),sb=Math.sin(t*.6*spin),V=[];
+    for(i=0;i<12;i++){var v=IV[i],x3=v[0]*ca+v[2]*sa,z3=-v[0]*sa+v[2]*ca,y3=v[1]*cb-z3*sb,z4=v[1]*sb+z3*cb;pr(x3*sc2,y3*sc2,z4*sc2);V.push([PX,PY])}
+    cx.beginPath();for(i=0;i<IE.length;i++){cx.moveTo(V[IE[i][0]][0],V[IE[i][0]][1]);cx.lineTo(V[IE[i][1]][0],V[IE[i][1]][1])}
+    cx.globalAlpha=j?.35:.9;cx.strokeStyle=j?"#ffb347":"#ffe2a8";cx.lineWidth=j?.8:1.2;cx.stroke();
+    for(i=0;i<12;i++){cx.globalAlpha=j?.5:1;cx.fillStyle="#fff0c4";cx.fillRect(V[i][0]-1.5,V[i][1]-1.5,3,3)}
+  }
+  var c=cx.createRadialGradient(0,0,0,0,0,R*.14);c.addColorStop(0,"rgba(255,248,224,1)");c.addColorStop(1,"rgba(255,160,40,0)");
+  cx.globalAlpha=1;cx.fillStyle=c;cx.beginPath();cx.arc(0,0,R*.14,0,7);cx.fill();
+  cx.restore();
+  if(Q>.5){cx.globalCompositeOperation="lighter";cx.globalAlpha=.16;cx.drawImage(cv,0,0,cv.width,cv.height,-W*.025,-H*.025,W*1.05,H*1.05)}
+  cx.globalAlpha=1;cx.globalCompositeOperation="source-over";
+  requestAnimationFrame(frame);
+}
+frame();
+
+add(load("jv_key","")?"Good day, sir. Tap the microphone or type a command.":"Good day, sir. Tap the gear, paste your Groq key once, and I am at your service.");
+})();
+</script>
+</body>
+</html>
